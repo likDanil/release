@@ -23,6 +23,17 @@ jobs:
     - name: Run generate-index.js
       run: node public/generate-index.js
 
+    - name: Create opkg Packages indexes
+      run: |
+        chmod +x scripts/create-packages-index.sh
+        cd keenetic
+        for arch in aarch64-k3.10 mipselsf-k3.4 mipssf-k3.4; do
+          if [ -d "$arch" ]; then
+            ../scripts/create-packages-index.sh "$arch" || true
+          fi
+        done
+        cd ..
+
     - name: Prepare build folder
       run: |
         mkdir build
