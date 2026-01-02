@@ -1,0 +1,10 @@
+Package: domain-server
+Version: 1.0.0
+Architecture: aarch64-3.10
+Maintainer: unknown
+Depends: 
+Section: base
+Priority: optional
+Filename: domain-server_1.0.0_aarch64-3.10.ipk
+Size: 2314982
+Description: Domain Server для управления доменами HydraRoute

@@ -1,0 +1,10 @@
+Package: domain-server
+Version: 1.0.0
+Architecture: mipsel-3.4
+Maintainer: unknown
+Depends: 
+Section: base
+Priority: optional
+Filename: domain-server_1.0.0_mipsel-3.4.ipk
+Size: 2356820
+Description: Domain Server для управления доменами HydraRoute
