@@ -56,12 +56,17 @@ function generateIndex(dir, basePath = '') {
         <th>Size</th>
       </tr>
       ${basePath ? '<tr><td><a href="../">[..]</a></td><td>-</td></tr>' : ''}
-      ${items.map(item => `
+      ${items.map(item => {
+        // Для файлов в той же директории используем только имя файла (относительный путь)
+        // Для поддиректорий используем путь с именем директории
+        const linkPath = item.isDir ? item.name + '/' : item.name;
+        return `
       <tr>
-        <td><a href="${item.path}${item.isDir ? '/' : ''}">${item.name}${item.isDir ? '/' : ''}</a></td>
+        <td><a href="${linkPath}">${item.name}${item.isDir ? '/' : ''}</a></td>
         <td class="size">${item.isDir ? '-' : formatSize(item.size)}</td>
       </tr>
-      `).join('')}
+      `;
+      }).join('')}
     </table>
   </div>
 </body>
@@ -80,7 +85,9 @@ function generateIndex(dir, basePath = '') {
 // Генерируем индексы для всех папок
 const releaseDir = path.join(__dirname, '..', 'keenetic');
 if (fs.existsSync(releaseDir)) {
-  generateIndex(releaseDir, 'keenetic');
+  // Используем пустой basePath для корневой директории keenetic
+  // чтобы ссылки были относительными от текущей директории
+  generateIndex(releaseDir, '');
   console.log('✅ Index pages generated successfully!');
 } else {
   console.error('❌ Directory "keenetic" not found!');
