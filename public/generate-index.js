@@ -67,20 +67,55 @@ function extractControlFromIpk(ipkPath) {
       controlTarPath = path.join(tmpDir, 'control.tar.gz');
     } else {
       // Альтернативный метод: парсим AR архив вручную
-      // AR формат: Global header "!<arch>\n" + записи файлов
+      // AR формат: Global header "!<arch>\n" (8 байт) + записи файлов
       // Каждая запись: 60-байтовый заголовок + данные файла
       const ipkBuffer = fs.readFileSync(ipkPath);
+      
+      // Проверяем AR magic header
+      const magic = ipkBuffer.slice(0, 8).toString('ascii');
+      if (magic !== '!<arch>\n') {
+        throw new Error('Invalid AR archive format');
+      }
+      
       let offset = 8; // Пропускаем "!<arch>\n"
       
-      while (offset < ipkBuffer.length) {
+      while (offset + 60 <= ipkBuffer.length) {
         // Читаем заголовок (60 байт)
         const header = ipkBuffer.slice(offset, offset + 60);
-        const fileName = header.slice(0, 16).toString('ascii').trim().replace(/\//g, '');
-        const fileSize = parseInt(header.slice(48, 58).toString('ascii').trim(), 10);
+        
+        // Имя файла (16 байт) - читаем до первого нулевого байта или пробела
+        let fileNameBytes = header.slice(0, 16);
+        let fileNameEnd = 16;
+        for (let i = 0; i < 16; i++) {
+          if (fileNameBytes[i] === 0 || fileNameBytes[i] === 0x20) {
+            fileNameEnd = i;
+            break;
+          }
+        }
+        let fileName = fileNameBytes.slice(0, fileNameEnd).toString('ascii');
+        // Убираем завершающий слеш, если есть
+        fileName = fileName.replace(/\/$/, '');
+        
+        // Размер файла (10 байт, позиция 48-58)
+        const sizeStr = header.slice(48, 58).toString('ascii').trim();
+        const fileSize = parseInt(sizeStr, 10);
+        
+        // Проверяем magic bytes (58-60: 0x60 0x0A) - должны быть 0x60 0x0A
+        const magicByte1 = header[58];
+        const magicByte2 = header[59];
+        if (magicByte1 !== 0x60 || magicByte2 !== 0x0A) {
+          // Неверный формат записи, пропускаем
+          break;
+        }
+        
+        if (isNaN(fileSize) || fileSize < 0 || fileSize > ipkBuffer.length) {
+          break; // Некорректный размер, выходим
+        }
         
         offset += 60; // Переходим к данным
         
-        if (fileName === 'control.tar.gz') {
+        // Проверяем, что это control.tar.gz
+        if (fileName === 'control.tar.gz' && fileSize > 0) {
           const fileData = ipkBuffer.slice(offset, offset + fileSize);
           controlTarPath = path.join(tmpDir, 'control.tar.gz');
           fs.writeFileSync(controlTarPath, fileData);
@@ -89,11 +124,31 @@ function extractControlFromIpk(ipkPath) {
         
         // Переходим к следующей записи (выравнивание по 2 байта)
         offset += fileSize;
-        if (fileSize % 2 === 1) offset += 1;
+        if (fileSize % 2 === 1) {
+          offset += 1; // Padding byte
+        }
       }
       
       if (!controlTarPath || !fs.existsSync(controlTarPath)) {
-        throw new Error('control.tar.gz not found in AR archive');
+        // Попробуем найти все файлы в архиве для отладки
+        const foundFiles = [];
+        let debugOffset = 8;
+        while (debugOffset + 60 <= ipkBuffer.length) {
+          const debugHeader = ipkBuffer.slice(debugOffset, debugOffset + 60);
+          let debugNameBytes = debugHeader.slice(0, 16);
+          let debugNameEnd = 16;
+          for (let i = 0; i < 16; i++) {
+            if (debugNameBytes[i] === 0 || debugNameBytes[i] === 0x20) {
+              debugNameEnd = i;
+              break;
+            }
+          }
+          const debugName = debugNameBytes.slice(0, debugNameEnd).toString('ascii').replace(/\/$/, '');
+          foundFiles.push(debugName);
+          const debugSize = parseInt(debugHeader.slice(48, 58).toString('ascii').trim(), 10);
+          debugOffset += 60 + debugSize + (debugSize % 2 === 1 ? 1 : 0);
+        }
+        throw new Error(`control.tar.gz not found in AR archive. Found files: ${foundFiles.join(', ')}`);
       }
     }
 
