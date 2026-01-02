@@ -50,13 +50,75 @@ function parseControlFields(content) {
 function extractControlFromIpk(ipkPath) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ipk-'));
   try {
-    const controlTar = execSync(`tar -xOf "${ipkPath}" control.tar.gz`);
-    fs.writeFileSync(path.join(tmpDir, 'control.tar.gz'), controlTar);
-    execSync(`tar -xzf control.tar.gz`, { cwd: tmpDir });
-    const controlContent = fs.readFileSync(path.join(tmpDir, 'control')).toString();
+    // IPK файл - это AR архив, содержащий: debian-binary, control.tar.gz, data.tar.gz
+    // Сначала проверяем наличие ar команды
+    let hasAr = false;
+    try {
+      execSync('ar --version', { stdio: 'ignore' });
+      hasAr = true;
+    } catch (e) {
+      hasAr = false;
+    }
+
+    let controlTarPath;
+    if (hasAr) {
+      // Используем ar для извлечения control.tar.gz из AR архива
+      execSync(`ar x "${ipkPath}" control.tar.gz`, { cwd: tmpDir });
+      controlTarPath = path.join(tmpDir, 'control.tar.gz');
+    } else {
+      // Альтернативный метод: парсим AR архив вручную
+      // AR формат: Global header "!<arch>\n" + записи файлов
+      // Каждая запись: 60-байтовый заголовок + данные файла
+      const ipkBuffer = fs.readFileSync(ipkPath);
+      let offset = 8; // Пропускаем "!<arch>\n"
+      
+      while (offset < ipkBuffer.length) {
+        // Читаем заголовок (60 байт)
+        const header = ipkBuffer.slice(offset, offset + 60);
+        const fileName = header.slice(0, 16).toString('ascii').trim().replace(/\//g, '');
+        const fileSize = parseInt(header.slice(48, 58).toString('ascii').trim(), 10);
+        
+        offset += 60; // Переходим к данным
+        
+        if (fileName === 'control.tar.gz') {
+          const fileData = ipkBuffer.slice(offset, offset + fileSize);
+          controlTarPath = path.join(tmpDir, 'control.tar.gz');
+          fs.writeFileSync(controlTarPath, fileData);
+          break;
+        }
+        
+        // Переходим к следующей записи (выравнивание по 2 байта)
+        offset += fileSize;
+        if (fileSize % 2 === 1) offset += 1;
+      }
+      
+      if (!controlTarPath || !fs.existsSync(controlTarPath)) {
+        throw new Error('control.tar.gz not found in AR archive');
+      }
+    }
+
+    // Распаковываем control.tar.gz
+    execSync(`tar -xzf "${controlTarPath}"`, { cwd: tmpDir });
+    const controlPath = path.join(tmpDir, 'CONTROL', 'control');
+    
+    // Проверяем альтернативные пути
+    let controlContent;
+    if (fs.existsSync(controlPath)) {
+      controlContent = fs.readFileSync(controlPath).toString();
+    } else {
+      // Иногда control может быть в корне распакованного архива
+      const altPath = path.join(tmpDir, 'control');
+      if (fs.existsSync(altPath)) {
+        controlContent = fs.readFileSync(altPath).toString();
+      } else {
+        throw new Error('control file not found in control.tar.gz');
+      }
+    }
+    
     return parseControlFields(controlContent);
   } catch (e) {
     console.error(`⚠️ Failed to parse .ipk: ${ipkPath}`);
+    console.error(`   Error: ${e.message}`);
     return null;
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
